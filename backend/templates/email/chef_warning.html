@@ -1,0 +1,33 @@
+{% extends "email/base.html" %}
+
+{% block header_text %}Cảnh báo chất lượng thực phẩm{% endblock %}
+
+{% block content %}
+<p>Kính gửi <strong>{{ user_name }}</strong>,</p>
+
+<p>
+  Hệ thống ghi nhận tỷ lệ phản ánh tiêu cực về chất lượng thực phẩm
+  {% if dish_name %}
+  — đặc biệt liên quan đến món <strong>{{ dish_name }}</strong> —
+  {% endif %}
+  đang có xu hướng tăng trong thời gian gần đây.
+</p>
+
+<p><strong>Vấn đề được phản ánh:</strong><br>{{ reason }}</p>
+
+<p>
+  Đây là <strong>cảnh báo sớm</strong> — tài khoản của bạn <em>chưa bị khóa</em>.
+  Tuy nhiên, nếu tỷ lệ phản ánh tiếp tục tăng, hệ thống sẽ tự động áp dụng
+  biện pháp hạn chế.
+</p>
+
+<p><strong>Chúng tôi khuyến nghị bạn:</strong></p>
+<ul>
+  <li>Kiểm tra lại quy trình bảo quản và chế biến thực phẩm.</li>
+  <li>Đảm bảo nguyên liệu tươi, đúng nguồn gốc và trong hạn sử dụng.</li>
+  <li>Vệ sinh dụng cụ nấu nướng và khu vực bếp định kỳ.</li>
+  <li>Phản hồi các đánh giá tiêu cực để giải thích và cải thiện.</li>
+</ul>
+
+<p>Trân trọng,<br>Đội ngũ hỗ trợ AMOMEAL</p>
+{% endblock %}

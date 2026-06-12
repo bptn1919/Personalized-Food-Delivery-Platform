@@ -1,0 +1,46 @@
+*/*.sqlite3
+**/*.pyc
+*/*.egg_info
+__pycache__/
+*.pyc
+
+**/build
+node_modules/
+
+# Python
+__pycache__/
+
+# Virtual Environment
+venv/
+**/env/.env*
+!**/env/.env.sample
+
+# Environment files
+.env
+**/.env
+.env.*
+**/.env.*
+
+
+**.pdf
+*.MD
+*.iml
+*.xml
+*.png
+*.puml
+*.svg
+*.png
+*.dot
+
+# Test directories
+backend/dish/tests/
+backend/integration_tests/
+
+# Coverage
+htmlcov/
+**/htmlcov/
+.coverage
+
+# Build
+build/
+dist/

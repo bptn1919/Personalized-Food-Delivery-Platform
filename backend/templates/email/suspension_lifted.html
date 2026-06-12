@@ -1,0 +1,32 @@
+{% extends "email/base.html" %}
+
+{% block header_text %}Tài khoản đã được mở khóa{% endblock %}
+
+{% block content %}
+<p>Kính gửi <strong>{{ user_name }}</strong>,</p>
+
+{% if suspension_type == "FULL_LOCK" %}
+<p>
+  Tài khoản Chef của bạn đã được <strong>mở khóa</strong>. Bạn có thể bắt đầu
+  nhận đơn hàng mới ngay bây giờ.
+</p>
+{% else %}
+<p>
+  Món ăn <strong>{{ dish_name }}</strong> của bạn đã được <strong>mở khóa</strong>
+  và xuất hiện trở lại trên nền tảng.
+</p>
+{% endif %}
+
+{% if lift_note %}
+<p><strong>Ghi chú từ đội ngũ xét duyệt:</strong><br>{{ lift_note }}</p>
+{% endif %}
+
+<p>
+  Chúng tôi khuyến khích bạn tiếp tục duy trì chất lượng thực phẩm và đảm bảo
+  an toàn vệ sinh để mang lại trải nghiệm tốt nhất cho khách hàng.
+</p>
+
+<p>Cảm ơn bạn đã hợp tác!</p>
+
+<p>Trân trọng,<br>Đội ngũ hỗ trợ AMOMEAL</p>
+{% endblock %}

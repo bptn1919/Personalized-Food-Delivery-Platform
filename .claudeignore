@@ -1,0 +1,62 @@
+# Virtual environment - rất lớn, không cần đọc
+backend/venv/
+
+# Python bytecode cache
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+
+# Git internals
+.git/
+
+# Coverage & test artifacts
+backend/.coverage
+backend/htmlcov/
+backend/.pytest_cache/
+
+# Database dumps (có thể rất lớn)
+backend/*.dump
+backend/*.sql
+
+# Django migrations - chỉ đọc khi cần debug migration cụ thể
+# Bỏ comment dòng dưới nếu muốn ignore:
+# backend/*/migrations/
+
+# Static & media files được collect/upload
+backend/staticfiles/
+backend/media/
+backend/static/
+
+# Node modules (nếu có frontend)
+node_modules/
+frontend/node_modules/
+
+# Build artifacts
+frontend/build/
+frontend/dist/
+**/.next/
+
+# IDE & editor files
+.vscode/
+.idea/
+**/*.swp
+**/*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Markdown docs tạm thời (API docs, notes)
+backend/*.md
+*.md
+!CLAUDE.md
+
+# Log files
+**/*.log
+backend/logs/
+
+# Env files (nhạy cảm, không cần quét)
+env/
+**/.env
+**/.env.*

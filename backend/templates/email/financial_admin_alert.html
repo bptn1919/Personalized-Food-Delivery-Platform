@@ -1,0 +1,17 @@
+{% extends "email/base.html" %}
+
+{% block header_text %}[ADMIN] Báo cáo tài chính cần xem xét{% endblock %}
+
+{% block content %}
+<p>Một phản ánh tài chính mới vừa được ghi nhận và cần xem xét thủ công.</p>
+
+<p><strong>Chef:</strong> {{ chef_email }}</p>
+<p><strong>Đơn hàng:</strong> #{{ order_id }}</p>
+<p><strong>Mã phản ánh:</strong> {{ report_uid }}</p>
+
+<p><strong>Mô tả từ khách:</strong><br>{{ description }}</p>
+
+<p>
+  Vui lòng truy cập Admin Dashboard để xem xét và xử lý phản ánh này.
+</p>
+{% endblock %}

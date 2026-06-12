@@ -1,0 +1,24 @@
+{% extends "email/base.html" %}
+
+{% block title %}Xác thực tài khoản{% endblock %}
+
+{% block header_text %}Xác thực tài khoản{% endblock %}
+
+{% block content %}
+<p>Kính gửi {{ user_name }},</p>
+
+<p>Cảm ơn bạn đã đăng ký trên nền tảng <strong>A Mobile Marketplace Platform – Connecting Home Cooks and Local Customers</strong>. 🎉</p>
+
+<p>Để hoàn tất quá trình đăng ký, vui lòng sử dụng <strong>mã OTP</strong> sau để xác thực tài khoản của bạn:</p>
+
+<div style="font-size: 24px; font-weight: bold; margin: 15px 0; color: #27AE60;">
+    {{ otp }}
+</div>
+
+<p>Nhập mã OTP này trong ứng dụng để kích hoạt tài khoản của bạn và bắt đầu trải nghiệm.</p>
+
+<p>Nếu bạn không thực hiện việc đăng ký này, vui lòng bỏ qua email.</p>
+
+<p>Trân trọng!</p>
+<p>Đội ngũ hỗ trợ <strong>A Mobile Marketplace Platform</strong> 👩‍🍳</p>
+{% endblock %}

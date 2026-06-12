@@ -1,0 +1,150 @@
+{
+  "version": "1.1",
+  "last_updated": "2026-04-08",
+  
+    "weight_rules": {
+      "weight_1_0": {
+        "description": "RẤT TỐT - comment chất lượng cao, nhiều thông tin",
+        "must_have": ["has_food"],
+        "need_at_least": 2,
+        "optional": ["has_feedback", "has_experience", "has_packaging", "has_taste", "has_dish", "has_emotion", "has_specific_description"],
+        "keywords": {
+          "has_food": [
+            "phở", "cơm", "bún", "mì", "cháo", "bánh", "trà sữa", "lẩu", "nướng", "xôi", "chè", 
+            "gà", "bò", "hải sản", "tôm", "cá", "thịt", "rau", "canh", "súp", "bánh cuốn", 
+            "bánh xèo", "nem", "chả", "giò", "cơm rang", "mỳ", "đồ ăn", "thức ăn", "món",
+            "bún bò", "hủ tiếu", "mì quảng", "bánh canh", "cháo lòng"
+          ],
+          "has_feedback": [
+            "ngon", "tuyệt", "hấp dẫn", "đậm đà", "vừa miệng", "chuẩn vị", "thơm ngon",
+            "giao nhanh", "ship nhanh", "đóng gói đẹp", "giao hàng tốt", "shipper thân thiện",
+            "mặn quá", "nhạt quá", "giao lâu", "nhanh", "chậm", "ổn"
+          ],
+          "has_experience": [
+            "hương vị", "chất lượng", "tươi", "nóng", "trải nghiệm tốt", "đáng tiền", 
+            "sẽ mua lại", "ủng hộ", "giới thiệu", "xứng đáng", "khẩu phần", "trải nghiệm"
+          ],
+          "has_packaging": [
+            "đóng gói", "giao hàng", "ship", "hộp", "túi", "bao bì", "niêm phong"
+          ],
+          "has_taste": [
+            "thơm", "béo", "giòn", "mềm", "bùi", "vừa ăn", "đậm đà", "thanh tao",
+            "mặn", "cay", "ngọt", "chua", "đắng", "tanh", "hôi"
+          ],
+          "has_dish": [
+            "phở", "cơm tấm", "bún bò", "hủ tiếu", "mì cay", "lẩu", "nướng"
+          ],
+          "has_emotion": [
+            "tuyệt vời", "xuất sắc", "hài lòng", "thích", "quá ngon", "ngon tuyệt", 
+            "siêu ngon", "đỉnh cao", "không thể chê", "thất vọng", "tệ"
+          ],
+          "has_specific_description": [
+            "mặn quá", "nhạt quá", "cay quá", "ngọt quá", "chua quá", "đắng quá",
+            "dai quá", "khô quá", "nhão quá", "tanh quá", "hôi quá"
+          ]
+        }
+      },
+      
+      "weight_0_5": {
+        "description": "TỐT NHƯNG ÍT THÔNG TIN - comment ngắn hoặc thiếu chi tiết",
+        "conditions": {
+          "word_count_range": {"min": 3, "max": 5},
+          "has_price_mention": true
+        },
+        "keywords": {
+          "has_shop": [
+            "shop", "quán", "cửa hàng", "nhân viên", "phục vụ", "thân thiện", "nhiệt tình"
+          ],
+          "price_keywords": [
+            "giá", "đắt", "rẻ", "mắc", "hợp lý", "tiền", "bao nhiêu", "giá cả"
+          ],
+          "short_positive": [
+            "ok", "tốt", "ngon", "được", "ổn", "tạm", "khá", "hay"
+          ]
+        },
+        "patterns": {
+          "repeated_chars": "(.)\\1{3,}",
+          "special_chars": "[!?]{3,}"
+        }
+      },
+      
+      "weight_0_0": {
+        "description": "INVALID - bỏ qua, không dùng để train",
+        "must_have_no_food": true,
+        "block_keywords": {
+          "non_food": [
+            "áo", "quần", "giày", "dép", "túi xách", "điện thoại", "laptop", "máy tính", 
+            "tivi", "tủ lạnh", "máy giặt", "xe máy", "ô tô", "xe đạp", "mỹ phẩm",
+            "son", "phấn", "trang sức", "đồng hồ", "mắt kính", "sách", "vở", "bút"
+          ],
+          "swear_words": [
+            "địt", "đụ", "lồn", "cặc", "đéo", "chửi", "cc", "dm", "vãi", "lol", "cứt", "đcm", "vcl"
+          ],
+          "ad_keywords": [
+            "giảm giá", "khuyến mãi", "sale", "deal sốc", "flash sale", "ưu đãi", 
+            "discount", "mua 1 tặng 1", "giảm 50%", "giảm giá sốc", "khuyến mại"
+          ]
+        },
+        "bot_patterns": [
+          "^\\d+\\.\\s", 
+          "^[A-Z]{3,}\\s", 
+          "[a-zA-Z0-9]{20,}",
+          "^(\\w+\\s?){1,2}$",
+          "^[0-9a-zA-Z]{1,2}$",
+          ".*\\b\\d{10,}\\b.*",
+          ".*\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}\\b.*"
+        ],
+        "patterns": {
+          "only_emojis": "^[\\U0001F600-\\U0001F64F\\U0001F300-\\U0001F5FF\\U0001F680-\\U0001F6FF\\U0001F1E0-\\U0001F1FF]+$",
+          "contains_link": "(https?://|www\\.)[^\\s]+",
+          "repeated_chars_only": "^(.)\\1{5,}$"
+        }
+      }
+    },
+  
+  "issue_keywords": {
+    "mặn": ["mặn", "mặn quá", "quá mặn", "mặn gì", "hơi mặn"],
+    "nhạt": ["nhạt", "nhạt quá", "quá nhạt", "hơi nhạt"],
+    "cay": ["cay", "cay quá", "quá cay", "hơi cay"],
+    "ngọt": ["ngọt", "ngọt quá", "quá ngọt", "ngọt gắt"],
+    "chua": ["chua", "chua quá", "quá chua", "hơi chua"],
+    "đắng": ["đắng", "đắng quá", "quá đắng", "hơi đắng"],
+    
+    "dai": ["dai", "quá dai", "cứng", "không mềm", "dai quá"],
+    "khô": ["khô", "khô quá", "khô cứng", "không có nước"],
+    "nhão": ["nhão", "quá nhão", "nát", "bở", "nhũn"],
+    "dầu mỡ": ["dầu mỡ", "nhiều dầu", "ngấy", "quá béo"],
+    
+    "tanh": ["tanh", "tanh quá", "hôi tanh", "mùi tanh"],
+    "hôi": ["hôi", "mùi hôi", "hôi khó chịu", "có mùi"],
+    
+    "hư thiu": ["hư", "thiu", "ôi", "hỏng", "cũ", "hết hạn", "thối"],
+    "sạn": ["sạn", "cát", "bẩn", "có cát", "dính tóc"],
+    
+    "giao chậm": ["giao chậm", "giao lâu", "ship trễ", "chờ lâu"],
+    "giao sai": ["giao sai", "sai món", "nhầm món", "không đúng"],
+    "giao thiếu": ["giao thiếu", "thiếu món", "thiếu đồ", "không đủ"],
+    
+    "đóng gói kém": ["đóng gói kém", "bể", "vỡ", "tràn", "hộp ướt"],
+    "nguội": ["nguội", "nguội lạnh", "không còn nóng", "lạnh"],
+    
+    "ít topping": ["ít topping", "nhân ít", "thiếu topping", "hơi ít"],
+    "ít sốt": ["ít sốt", "sốt ít quá", "khô sốt", "thiếu sốt"],
+    "ít nhân": ["ít nhân", "nhân ít", "thiếu nhân", "hơi ít nhân"],
+    
+    "làm lâu": ["chờ lâu", "lâu quá", "đợi lâu", "làm lâu"],
+    "giá đắt": ["đắt", "mắc", "quá tiền", "giá cao", "hơi đắt"],
+    "phục vụ kém": ["phục vụ kém", "nhân viên tệ", "thái độ không tốt", "phục vụ chậm"],
+    
+    "chưa tốt": [
+      "dở", "dở quá", "dở tệ", "quá dở", "ăn dở",
+      "tệ", "tệ hại", "quá tệ", "tệ quá", "cực tệ",
+      "chán", "chán quá", "ngán", "chả có gì đặc biệt",
+      "không ngon", "chẳng ngon", "chả ngon", "kém ngon", "không ngon chút nào",
+      "thất vọng", "hụt hẫng", "không như mong đợi", "kỳ vọng quá cao",
+      "không hợp khẩu vị", "không hợp", "không vừa miệng", "lạ miệng",
+      "kém chất lượng", "chất lượng kém", "hàng kém",
+      "tạm được nhưng chưa tốt", "chưa ưng", "chưa hài lòng"
+    ]
+  }
+}

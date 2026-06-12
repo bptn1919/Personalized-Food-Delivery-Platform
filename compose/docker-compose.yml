@@ -1,0 +1,180 @@
+# ================= DOCKER-COMPOSE.YML =================
+version: '3.8'
+
+services:
+  # ========== DATABASES ==========
+  mongodb:
+    image: phucnguyenbao/amomeal-mongodb:${TAG}
+    container_name: mongodb
+    restart: unless-stopped
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - amomeal-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: phucnguyenbao/amomeal-redis:${TAG}
+    container_name: redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-}
+    volumes:
+      - redis_data:/data
+    networks:
+      - amomeal-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ========== BACKEND SERVICES ==========
+  backend:
+    image: phucnguyenbao/amomeal-backend:${TAG}
+    container_name: backend
+    restart: unless-stopped
+    environment:
+      # Django Settings
+      DJANGO_SETTINGS_MODULE: marketplace.settings
+      DEBUG: ${DEBUG:-False}
+      
+      # Database - PostgreSQL
+      DATABASE_URL: ${DATABASE_URL}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_USER: ${POSTGRES_USER}
+      
+      # MongoDB
+      MONGO_URI: mongodb://mongodb:27017
+      
+      # Redis
+      REDIS_URL: redis://redis:6379
+      
+      # Auth & Security
+      SECRET_KEY: ${SECRET_KEY}
+      AUTHENTICATE_TOKEN_EXPIRES_IN: ${AUTHENTICATE_TOKEN_EXPIRES_IN}
+      
+      # Email
+      EMAIL_BACKEND: ${EMAIL_BACKEND}
+      EMAIL_HOST: ${EMAIL_HOST}
+      EMAIL_HOST_USER: ${EMAIL_HOST_USER}
+      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD}
+      EMAIL_PORT: ${EMAIL_PORT}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS}
+      EMAIL_USE_SSL: ${EMAIL_USE_SSL}
+      EMAIL_TIMEOUT: ${EMAIL_TIMEOUT}
+      
+      # PAYOS Payment
+      PAYOS_API_KEY: ${PAYOS_API_KEY}
+      PAYOS_API_URL: ${PAYOS_API_URL}
+      PAYOS_CHECKSUM_KEY: ${PAYOS_CHECKSUM_KEY}
+      PAYOS_CLIENT_ID: ${PAYOS_CLIENT_ID}
+      PAYOS_RETURN_URL: ${PAYOS_RETURN_URL}
+      PAYOS_CANCEL_URL: ${PAYOS_CANCEL_URL}
+      
+      # AWS S3
+      USE_S3: ${USE_S3:-False}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_STORAGE_BUCKET_NAME: ${AWS_STORAGE_BUCKET_NAME}
+      AWS_S3_REGION_NAME: ${AWS_S3_REGION_NAME}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME}
+      S3_REGION: ${S3_REGION}
+      S3_EXPIRES_IN: ${S3_EXPIRES_IN}
+      S3_PUBLIC_URL: ${S3_PUBLIC_URL}
+
+      # New Auth & JWT Keys
+      AUTH_JWT_ALGORITHM: ${AUTH_JWT_ALGORITHM}
+      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET}
+      AUTH_REFRESH_TOKEN_EXPIRES_IN: ${AUTH_REFRESH_TOKEN_EXPIRES_IN}
+      AUTH_REFRESH_TOKEN_PEPPER: ${AUTH_REFRESH_TOKEN_PEPPER}
+
+      # Gemini AI integration
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+
+      # OTP expiration configs
+      OTP_BANK_EXPIRE_MINUTES: ${OTP_BANK_EXPIRE_MINUTES}
+      OTP_RESET_PASSWORD_EXPIRE_MINUTES: ${OTP_RESET_PASSWORD_EXPIRE_MINUTES}
+      OTP_SIGNUP_EXPIRE_MINUTES: ${OTP_SIGNUP_EXPIRE_MINUTES}
+      OTP_WITHDRAW_EXPIRE_MINUTES: ${OTP_WITHDRAW_EXPIRE_MINUTES}
+
+      # Deployment configs
+      PAYMENT_ONLY_DEPLOY: ${PAYMENT_ONLY_DEPLOY}
+
+      # PAYOS Payouts
+      PAYOS_PAYOUT_API_KEY: ${PAYOS_PAYOUT_API_KEY}
+      PAYOS_PAYOUT_CHECKSUM_KEY: ${PAYOS_PAYOUT_CHECKSUM_KEY}
+      PAYOS_PAYOUT_CLIENT_ID: ${PAYOS_PAYOUT_CLIENT_ID}
+
+      # Wallet secrets
+      WALLET_CHAIN_SECRET: ${WALLET_CHAIN_SECRET}
+    networks:
+      - amomeal-network
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ========== AI SERVICE ==========
+  ai-service:
+    image: phucnguyenbao/amomeal-ai:${TAG}
+    container_name: ai-service
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: http://backend:8000
+      MODEL_PATH: /app/models
+    networks:
+      - amomeal-network
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  # ========== FRONTEND ==========
+  frontend:
+    image: phucnguyenbao/amomeal-frontend:${TAG}
+    container_name: frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    environment:
+      VITE_API_URL: http://backend:8000/api
+      VITE_PAYOS_API_URL: ${PAYOS_API_URL}
+      VITE_PAYOS_RETURN_URL: ${PAYOS_RETURN_URL}
+      VITE_PAYOS_CANCEL_URL: ${PAYOS_CANCEL_URL}
+    networks:
+      - amomeal-network
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+networks:
+  amomeal-network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
+    driver: local
+  redis_data:
+    driver: local

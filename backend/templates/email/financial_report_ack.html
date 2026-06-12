@@ -1,0 +1,24 @@
+{% extends "email/base.html" %}
+
+{% block header_text %}Phản ánh tài chính đã được ghi nhận{% endblock %}
+
+{% block content %}
+<p>Kính gửi <strong>{{ user_name }}</strong>,</p>
+
+<p>
+  Chúng tôi đã nhận được phản ánh của bạn liên quan đến <strong>vấn đề tài chính</strong>
+  cho đơn hàng <strong>#{{ order_id }}</strong>.
+</p>
+
+<p>
+  Đội ngũ hỗ trợ sẽ xem xét và liên hệ lại với bạn trong vòng <strong>1–2 ngày làm việc</strong>.
+</p>
+
+<p><strong>Mã phản ánh:</strong> {{ report_uid }}</p>
+
+<p>
+  Trong thời gian chờ xử lý, bạn vẫn có thể tiếp tục nhận và thực hiện các đơn hàng bình thường.
+</p>
+
+<p>Trân trọng,<br>Đội ngũ hỗ trợ AMOMEAL</p>
+{% endblock %}

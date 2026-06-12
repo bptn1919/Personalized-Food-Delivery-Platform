@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link href="https://fonts.googleapis.com/css2?family=Inter&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #f4f4f4;
+      margin: 0;
+      padding: 20px;
+    }
+    .container {
+        max-width: 680px;
+        width: 100%;
+        margin: auto;
+        box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        background-color: #ffffff;
+    }
+    header {
+        background-color: #3144C2;
+        padding: 56px 96px 24px 96px;
+    }
+
+    header h2 {
+        color: #ffffff;
+        margin: 0;
+        font-size: 32px;
+        font-weight: 600;
+        width: 488px;
+        height: 40px;
+    }
+    .content {
+        margin: 0;
+        padding: 24px 10%;
+        font-size: 14px;
+        gap: 16px;
+    }
+    .button {
+        display: flex;
+        width: fit-content;
+        line-height: 40px;
+        padding: 0px 16px;
+        font-size: 14px;
+        font-weight: 500;
+        background-color: #3144C2;
+        color: #ffffff;
+        text-decoration: none;
+        border-radius: 2px;
+        margin: 16px 0;
+    }
+    .footer {
+        font-size: 12px;
+        width: 100%;
+        text-align: center;
+    }
+    .footer img {
+        width: 129px;
+        height: auto;
+    }
+    .footer a {
+        text-decoration: none;
+        padding: 12px;
+    }
+    hr {
+        border: none;
+        border-top: 1px solid #e0e0e0;
+        margin: 24px 0;
+    }
+    .footer p a{
+        color: #3849E0;
+        text-decoration: none;
+    }
+  </style>
+  <title>Base Email</title>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h2>{% block header_text %}Tiêu đề mặc định{% endblock %}</h2>
+    </header>
+    <div class="content">
+      {% block content %}
+      <p>Kính gửi {{ user_name }},</p>
+      <p>Trân trọng!</p>
+      <p>Đội ngũ hỗ trợ hệ thống Quản lý thực đơn 🍏</p>
+      {% endblock %}
+      <hr>
+      <div class="footer">
+        <img src="" alt="Logo">
+        <p>
+          <a href="#">Liên hệ</a> |
+          <a href="#">Chính sách bảo mật</a> |
+          <a href="#">Hủy đăng ký</a>
+        </p>
+        <p>766/3G Đ. Sư Vạn Hạnh, Phường 12, Quận 10, Hồ Chí Minh</p>
+        <p>© 2022 Metropole Đã đăng ký Bản quyền</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

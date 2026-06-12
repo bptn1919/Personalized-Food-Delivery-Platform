@@ -1,0 +1,40 @@
+{% extends "email/base.html" %}
+
+{% block header_text %}Món ăn bị tạm khóa{% endblock %}
+
+{% block content %}
+<p>Kính gửi <strong>{{ user_name }}</strong>,</p>
+
+<p>
+  Hệ thống đã ghi nhận tỷ lệ phản ánh tiêu cực cao về chất lượng món
+  <strong>{{ dish_name }}</strong>. Món ăn này đã bị <strong>tạm khóa</strong>
+  và không xuất hiện trên nền tảng cho đến khi được xem xét lại.
+</p>
+
+<p><strong>Lý do cụ thể:</strong><br>{{ reason }}</p>
+
+{% if metrics %}
+<p><strong>Dữ liệu phân tích cho món {{ dish_name }}:</strong></p>
+<ul>
+  {% if metrics.dish_report_count %}<li>Số phản ánh về món: {{ metrics.dish_report_count }}</li>{% endif %}
+  {% if metrics.dish_ratio %}<li>Tỷ lệ phản ánh: {{ metrics.dish_ratio | floatformat:2 }}%</li>{% endif %}
+  {% if metrics.dish_orders %}<li>Tổng đơn có món này: {{ metrics.dish_orders }}</li>{% endif %}
+  {% if metrics.window_days %}<li>Cửa sổ thời gian: {{ metrics.window_days }} ngày</li>{% endif %}
+</ul>
+{% endif %}
+
+<p><strong>Ảnh hưởng:</strong></p>
+<ul>
+  <li>Chỉ riêng <strong>{{ dish_name }}</strong> bị khóa — các món khác của bạn không bị ảnh hưởng.</li>
+  <li>Bạn vẫn có thể nhận đơn hàng với các món ăn khác.</li>
+</ul>
+
+<p>
+  Để mở khóa món ăn, vui lòng gửi giải trình và mô tả các biện pháp bạn đã
+  thực hiện để cải thiện chất lượng.
+</p>
+
+<a class="button" href="{{ appeal_url }}">Gửi giải trình ngay</a>
+
+<p>Trân trọng,<br>Đội ngũ hỗ trợ AMOMEAL</p>
+{% endblock %}

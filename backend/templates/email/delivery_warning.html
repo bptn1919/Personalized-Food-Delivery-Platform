@@ -1,0 +1,43 @@
+{% extends "email/base.html" %}
+
+{% block header_text %}
+{% if is_admin_alert %}Cảnh báo: Tỷ lệ giao hàng sai/thiếu cao{% else %}Cảnh báo giao hàng{% endif %}
+{% endblock %}
+
+{% block content %}
+<p>Kính gửi <strong>{{ user_name }}</strong>,</p>
+
+{% if is_admin_alert %}
+<p>
+  Hệ thống phát hiện tỷ lệ đơn hàng bị <strong>giao sai</strong> hoặc
+  <strong>giao thiếu</strong> của bếp bạn đang ở mức cao, vượt ngưỡng cần xem xét.
+  Tài khoản của bạn đã được đánh dấu để đội ngũ hỗ trợ kiểm tra.
+</p>
+{% else %}
+<p>
+  Hệ thống ghi nhận một số phản hồi từ khách hàng về việc
+  <strong>giao sai món</strong> hoặc <strong>giao thiếu món</strong>.
+</p>
+{% endif %}
+
+<p><strong>Chi tiết:</strong><br>{{ reason }}</p>
+
+{% if metrics %}
+<p><strong>Thống kê trong {{ metrics.window_days }} ngày gần nhất:</strong></p>
+<ul>
+  {% if metrics.report_count %}<li>Số phản ánh trực tiếp: {{ metrics.report_count }}</li>{% endif %}
+  {% if metrics.review_order_count %}<li>Số đơn có đánh giá giao hàng xấu: {{ metrics.review_order_count }}</li>{% endif %}
+  {% if metrics.completed_orders %}<li>Tổng đơn hoàn thành: {{ metrics.completed_orders }}</li>{% endif %}
+  {% if metrics.delivery_ratio %}<li>Tỷ lệ sự cố giao hàng: {{ metrics.delivery_ratio | floatformat:2 }}%</li>{% endif %}
+</ul>
+{% endif %}
+
+<p><strong>Gợi ý khắc phục:</strong></p>
+<ul>
+  <li>Kiểm tra lại quy trình đóng gói và kiểm tra món trước khi giao.</li>
+  <li>Đảm bảo danh sách món khớp với đơn hàng trước khi giao cho shipper.</li>
+  <li>Liên hệ trực tiếp với khách hàng bị ảnh hưởng để hỗ trợ.</li>
+</ul>
+
+<p>Trân trọng,<br>Đội ngũ hỗ trợ AMOMEAL</p>
+{% endblock %}

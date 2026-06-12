@@ -1,0 +1,44 @@
+{% extends "email/base.html" %}
+
+{% block header_text %}Tài khoản Chef tạm thời bị khóa{% endblock %}
+
+{% block content %}
+<p>Kính gửi <strong>{{ user_name }}</strong>,</p>
+
+<p>
+  Hệ thống đã phát hiện tỷ lệ phản ánh tiêu cực về chất lượng thực phẩm
+  từ khách hàng vượt ngưỡng an toàn cho phép trong 30 ngày gần nhất.
+  Do đó, tài khoản Chef của bạn đã bị <strong>tạm khóa nhận đơn</strong>.
+</p>
+
+<p><strong>Lý do cụ thể:</strong><br>{{ reason }}</p>
+
+{% if metrics %}
+<p><strong>Dữ liệu phân tích:</strong></p>
+<ul>
+  {% if metrics.chef_report_count %}<li>Số phản ánh: {{ metrics.chef_report_count }}</li>{% endif %}
+  {% if metrics.chef_ratio %}<li>Tỷ lệ phản ánh: {{ metrics.chef_ratio | floatformat:2 }}%</li>{% endif %}
+  {% if metrics.unique_reporters %}<li>Số khách khác nhau: {{ metrics.unique_reporters }}</li>{% endif %}
+  {% if metrics.completed_orders %}<li>Tổng đơn hoàn thành: {{ metrics.completed_orders }}</li>{% endif %}
+  {% if metrics.window_days %}<li>Cửa sổ thời gian: {{ metrics.window_days }} ngày</li>{% endif %}
+</ul>
+{% endif %}
+
+<p><strong>Trong thời gian bị khóa:</strong></p>
+<ul>
+  <li>Bạn sẽ <strong>không nhận được đơn hàng mới</strong>.</li>
+  <li>Các đơn hàng đang được xử lý vẫn tiếp tục bình thường.</li>
+  <li>Tài khoản của bạn chưa bị xóa — bạn vẫn có thể đăng nhập.</li>
+</ul>
+
+<p>
+  Để được xem xét mở khóa, vui lòng gửi giải trình qua ứng dụng trong vòng <strong>7 ngày</strong>.
+  Giải trình cần nêu rõ nguyên nhân và biện pháp khắc phục.
+</p>
+
+<a class="button" href="{{ appeal_url }}">Gửi giải trình ngay</a>
+
+<p>Nếu cần hỗ trợ, vui lòng liên hệ đội ngũ chúng tôi qua email hoặc chat.</p>
+
+<p>Trân trọng,<br>Đội ngũ hỗ trợ AMOMEAL</p>
+{% endblock %}

@@ -1,0 +1,728 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+      action:
+        description: 'Action to perform (apply or destroy)'
+        required: false
+        default: 'apply'
+        type: choice
+        options:
+          - apply
+          - destroy
+
+env:
+  AWS_REGION: us-east-1
+  BACKEND_IMAGE: phucnguyenbao/amomeal-backend
+  FRONTEND_IMAGE: phucnguyenbao/amomeal-frontend
+  AI_IMAGE: phucnguyenbao/amomeal-ai
+  MONGO_IMAGE: phucnguyenbao/amomeal-mongodb
+  REDIS_IMAGE: phucnguyenbao/amomeal-redis
+
+jobs:
+  # ========== CI & BUILD ==========
+  ci_build_test:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event.inputs.action != 'destroy'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Run Lint
+        run: echo "Run lint here"
+      - name: Build
+        run: echo "Build app here"
+      - name: Unit Test
+        run: echo "Run unit tests"
+      - name: Code Coverage
+        run: echo "Generate coverage"
+
+  security_scan:
+    runs-on: ubuntu-latest
+    needs: ci_build_test
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Secrets Scanning
+        run: echo "Scan secrets"
+      - name: SAST
+        run: echo "Static security scan"
+
+  # ========== BUILD & PUSH IMAGES ==========
+  push_image:
+    runs-on: ubuntu-latest
+    needs: security_scan
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      # Build & Push Backend - KHÔNG có build-args (secrets sẽ lấy từ AWS Secrets Manager khi deploy)
+      - name: Build & Push Backend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: ${{ env.BACKEND_IMAGE }}:${{ github.sha }}
+
+      # Build & Push Frontend - chỉ truyền VITE_* vars (public, không phải secret)
+      - name: Build & Push Frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./FE-admin
+          push: true
+          build-args: |
+            VITE_API_URL=/api
+          tags: ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}
+
+      # Build & Push AI Model
+      - name: Build & Push AI Model
+        uses: docker/build-push-action@v5
+        with:
+          context: ./AI-model-prod
+          push: true
+          tags: ${{ env.AI_IMAGE }}:${{ github.sha }}
+
+      # Pull, Tag & Push MongoDB
+      - name: Pull MongoDB Official Image
+        run: |
+          docker pull mongo:latest
+          docker tag mongo:latest ${{ env.MONGO_IMAGE }}:${{ github.sha }}
+          docker tag mongo:latest ${{ env.MONGO_IMAGE }}:latest
+
+      - name: Push MongoDB to DockerHub
+        run: |
+          docker push ${{ env.MONGO_IMAGE }}:${{ github.sha }}
+          docker push ${{ env.MONGO_IMAGE }}:latest
+
+      # Pull, Tag & Push Redis
+      - name: Pull Redis Official Image
+        run: |
+          docker pull redis:alpine
+          docker tag redis:alpine ${{ env.REDIS_IMAGE }}:${{ github.sha }}
+          docker tag redis:alpine ${{ env.REDIS_IMAGE }}:latest
+
+      - name: Push Redis to DockerHub
+        run: |
+          docker push ${{ env.REDIS_IMAGE }}:${{ github.sha }}
+          docker push ${{ env.REDIS_IMAGE }}:latest
+
+  # ========== INFRASTRUCTURE ==========
+  provision_infra:
+    runs-on: ubuntu-latest
+    needs: push_image
+    if: github.ref == 'refs/heads/main' && github.event.inputs.action != 'destroy'
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-role
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Cleanup stale state lock
+        run: |
+          aws s3 rm s3://phuc-amomeal-tech-terraform-state/amomeal-tech/terraform.tfstate.tflock --region ${{ env.AWS_REGION }} 2>/dev/null || true
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+      - name: Create S3 bucket if not exists
+        run: |
+          BUCKET_NAME="phuc-amomeal-tech-terraform-state"
+          
+          if aws s3 ls "s3://$BUCKET_NAME" 2>&1 | grep -q "NoSuchBucket"; then
+            echo "Creating bucket $BUCKET_NAME..."
+            aws s3 mb s3://$BUCKET_NAME --region ${{ env.AWS_REGION }}
+            
+            echo "Enabling versioning..."
+            aws s3api put-bucket-versioning \
+              --bucket $BUCKET_NAME \
+              --versioning-configuration Status=Enabled \
+              --region ${{ env.AWS_REGION }}
+            
+            echo "Enabling encryption..."
+            aws s3api put-bucket-encryption \
+              --bucket $BUCKET_NAME \
+              --server-side-encryption-configuration '{
+                "Rules": [{
+                  "ApplyServerSideEncryptionByDefault": {
+                    "SSEAlgorithm": "AES256"
+                  }
+                }]
+              }' \
+              --region ${{ env.AWS_REGION }}
+            
+            echo "Blocking public access..."
+            aws s3api put-public-access-block \
+              --bucket $BUCKET_NAME \
+              --public-access-block-configuration \
+                BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true \
+              --region ${{ env.AWS_REGION }}
+            
+            echo "✅ Bucket created successfully"
+          else
+            echo "✅ Bucket already exists"
+          fi
+      - name: Terraform Init
+        working-directory: ./terraform
+        run: terraform init
+
+      - name: Create terraform.tfvars
+        working-directory: ./terraform
+        run: |
+          cat > terraform.tfvars << 'EOF'
+          secret_key = "${{ secrets.SECRET_KEY }}"
+          authenticate_token_expires_in = "${{ secrets.AUTHENTICATE_TOKEN_EXPIRES_IN }}"
+          debug = "${{ secrets.DEBUG }}"
+          database_url = "${{ secrets.DATABASE_URL }}"
+          postgres_db = "${{ secrets.POSTGRES_DB }}"
+          postgres_host = "${{ secrets.POSTGRES_HOST }}"
+          postgres_password = "${{ secrets.POSTGRES_PASSWORD }}"
+          postgres_port = "${{ secrets.POSTGRES_PORT }}"
+          postgres_user = "${{ secrets.POSTGRES_USER }}"
+          email_backend = "${{ secrets.EMAIL_BACKEND }}"
+          email_host = "${{ secrets.EMAIL_HOST }}"
+          email_host_user = "${{ secrets.EMAIL_HOST_USER }}"
+          email_host_password = "${{ secrets.EMAIL_HOST_PASSWORD }}"
+          email_port = "${{ secrets.EMAIL_PORT }}"
+          email_use_tls = "${{ secrets.EMAIL_USE_TLS }}"
+          email_use_ssl = "${{ secrets.EMAIL_USE_SSL }}"
+          email_timeout = "${{ secrets.EMAIL_TIMEOUT }}"
+          payos_api_key = "${{ secrets.PAYOS_API_KEY }}"
+          payos_api_url = "${{ secrets.PAYOS_API_URL }}"
+          payos_checksum_key = "${{ secrets.PAYOS_CHECKSUM_KEY }}"
+          payos_client_id = "${{ secrets.PAYOS_CLIENT_ID }}"
+          payos_return_url = "${{ secrets.PAYOS_RETURN_URL }}"
+          payos_cancel_url = "${{ secrets.PAYOS_CANCEL_URL }}"
+          use_s3 = "${{ secrets.USE_S3 }}"
+          aws_access_key_id = "${{ secrets.AWS_ACCESS_KEY_ID }}"
+          aws_secret_access_key = "${{ secrets.AWS_SECRET_ACCESS_KEY }}"
+          aws_storage_bucket_name = "${{ secrets.AWS_STORAGE_BUCKET_NAME }}"
+          aws_s3_region_name = "${{ secrets.AWS_S3_REGION_NAME }}"
+          s3_access_key_id = "${{ secrets.S3_ACCESS_KEY_ID }}"
+          s3_secret_access_key = "${{ secrets.S3_SECRET_ACCESS_KEY }}"
+          s3_bucket_name = "${{ secrets.S3_BUCKET_NAME }}"
+          s3_region = "${{ secrets.S3_REGION }}"
+          s3_expires_in = "${{ secrets.S3_EXPIRES_IN }}"
+          s3_public_url = "${{ secrets.S3_PUBLIC_URL }}"
+          auth_jwt_algorithm = "${{ secrets.AUTH_JWT_ALGORITHM }}"
+          auth_jwt_secret = "${{ secrets.AUTH_JWT_SECRET }}"
+          auth_refresh_token_expires_in = "${{ secrets.AUTH_REFRESH_TOKEN_EXPIRES_IN }}"
+          auth_refresh_token_pepper = "${{ secrets.AUTH_REFRESH_TOKEN_PEPPER }}"
+          gemini_api_key = "${{ secrets.GEMINI_API_KEY }}"
+          otp_bank_expire_minutes = "${{ secrets.OTP_BANK_EXPIRE_MINUTES }}"
+          otp_reset_password_expire_minutes = "${{ secrets.OTP_RESET_PASSWORD_EXPIRE_MINUTES }}"
+          otp_signup_expire_minutes = "${{ secrets.OTP_SIGNUP_EXPIRE_MINUTES }}"
+          otp_withdraw_expire_minutes = "${{ secrets.OTP_WITHDRAW_EXPIRE_MINUTES }}"
+          payment_only_deploy = "${{ secrets.PAYMENT_ONLY_DEPLOY }}"
+          payos_payout_api_key = "${{ secrets.PAYOS_PAYOUT_API_KEY }}"
+          payos_payout_checksum_key = "${{ secrets.PAYOS_PAYOUT_CHECKSUM_KEY }}"
+          payos_payout_client_id = "${{ secrets.PAYOS_PAYOUT_CLIENT_ID }}"
+          wallet_chain_secret = "${{ secrets.WALLET_CHAIN_SECRET }}"
+          EOF
+
+      - name: Import existing resources
+        working-directory: ./terraform
+        run: |
+          terraform import -var-file="terraform.tfvars" aws_s3_bucket.terraform_state phuc-amomeal-tech-terraform-state 2>/dev/null || echo "✅ S3 bucket already in state"
+          terraform import -var-file="terraform.tfvars" aws_iam_openid_connect_provider.github arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:oidc-provider/token.actions.githubusercontent.com 2>/dev/null || echo "✅ OIDC provider already in state"
+          terraform import -var-file="terraform.tfvars" aws_iam_role.github_actions_role github-actions-role 2>/dev/null || echo "✅ IAM role already in state"
+      - name: Terraform Apply
+        working-directory: ./terraform
+        run: terraform apply -auto-approve
+        env:
+          # Auth & Security
+          TF_VAR_secret_key: ${{ secrets.SECRET_KEY }}
+          TF_VAR_authenticate_token_expires_in: ${{ secrets.AUTHENTICATE_TOKEN_EXPIRES_IN }}
+          TF_VAR_debug: ${{ secrets.DEBUG }}
+
+          # Database
+          TF_VAR_database_url: ${{ secrets.DATABASE_URL }}
+          TF_VAR_postgres_db: ${{ secrets.POSTGRES_DB }}
+          TF_VAR_postgres_host: ${{ secrets.POSTGRES_HOST }}
+          TF_VAR_postgres_password: ${{ secrets.POSTGRES_PASSWORD }}
+          TF_VAR_postgres_port: ${{ secrets.POSTGRES_PORT }}
+          TF_VAR_postgres_user: ${{ secrets.POSTGRES_USER }}
+
+          # Email Configuration
+          TF_VAR_email_backend: ${{ secrets.EMAIL_BACKEND }}
+          TF_VAR_email_host: ${{ secrets.EMAIL_HOST }}
+          TF_VAR_email_host_user: ${{ secrets.EMAIL_HOST_USER }}
+          TF_VAR_email_host_password: ${{ secrets.EMAIL_HOST_PASSWORD }}
+          TF_VAR_email_port: ${{ secrets.EMAIL_PORT }}
+          TF_VAR_email_use_tls: ${{ secrets.EMAIL_USE_TLS }}
+          TF_VAR_email_use_ssl: ${{ secrets.EMAIL_USE_SSL }}
+          TF_VAR_email_timeout: ${{ secrets.EMAIL_TIMEOUT }}
+
+          # PAYOS Payment
+          TF_VAR_payos_api_key: ${{ secrets.PAYOS_API_KEY }}
+          TF_VAR_payos_api_url: ${{ secrets.PAYOS_API_URL }}
+          TF_VAR_payos_checksum_key: ${{ secrets.PAYOS_CHECKSUM_KEY }}
+          TF_VAR_payos_client_id: ${{ secrets.PAYOS_CLIENT_ID }}
+          TF_VAR_payos_return_url: ${{ secrets.PAYOS_RETURN_URL }}
+          TF_VAR_payos_cancel_url: ${{ secrets.PAYOS_CANCEL_URL }}
+
+          # AWS S3 Storage
+          TF_VAR_use_s3: ${{ secrets.USE_S3 }}
+          TF_VAR_aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          TF_VAR_aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          TF_VAR_aws_storage_bucket_name: ${{ secrets.AWS_STORAGE_BUCKET_NAME }}
+          TF_VAR_aws_s3_region_name: ${{ secrets.AWS_S3_REGION_NAME }}
+
+          # Alternative S3 Config
+          TF_VAR_s3_access_key_id: ${{ secrets.S3_ACCESS_KEY_ID }}
+          TF_VAR_s3_secret_access_key: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+          TF_VAR_s3_bucket_name: ${{ secrets.S3_BUCKET_NAME }}
+          TF_VAR_s3_region: ${{ secrets.S3_REGION }}
+          TF_VAR_s3_expires_in: ${{ secrets.S3_EXPIRES_IN }}
+          TF_VAR_s3_public_url: ${{ secrets.S3_PUBLIC_URL }}
+          TF_VAR_auth_jwt_algorithm: ${{ secrets.AUTH_JWT_ALGORITHM }}
+          TF_VAR_auth_jwt_secret: ${{ secrets.AUTH_JWT_SECRET }}
+          TF_VAR_auth_refresh_token_expires_in: ${{ secrets.AUTH_REFRESH_TOKEN_EXPIRES_IN }}
+          TF_VAR_auth_refresh_token_pepper: ${{ secrets.AUTH_REFRESH_TOKEN_PEPPER }}
+          TF_VAR_gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          TF_VAR_otp_bank_expire_minutes: ${{ secrets.OTP_BANK_EXPIRE_MINUTES }}
+          TF_VAR_otp_reset_password_expire_minutes: ${{ secrets.OTP_RESET_PASSWORD_EXPIRE_MINUTES }}
+          TF_VAR_otp_signup_expire_minutes: ${{ secrets.OTP_SIGNUP_EXPIRE_MINUTES }}
+          TF_VAR_otp_withdraw_expire_minutes: ${{ secrets.OTP_WITHDRAW_EXPIRE_MINUTES }}
+          TF_VAR_payment_only_deploy: ${{ secrets.PAYMENT_ONLY_DEPLOY }}
+          TF_VAR_payos_payout_api_key: ${{ secrets.PAYOS_PAYOUT_API_KEY }}
+          TF_VAR_payos_payout_checksum_key: ${{ secrets.PAYOS_PAYOUT_CHECKSUM_KEY }}
+          TF_VAR_payos_payout_client_id: ${{ secrets.PAYOS_PAYOUT_CLIENT_ID }}
+          TF_VAR_wallet_chain_secret: ${{ secrets.WALLET_CHAIN_SECRET }}
+
+      - name: Download SSH private key from S3
+        run: |
+          echo "Downloading SSH private key from S3..."
+          aws s3 cp s3://phuc-amomeal-tech-terraform-state/keys/amomeal-tech-key.pem ./amomeal-tech-key.pem --region ${{ env.AWS_REGION }}
+          chmod 400 ./amomeal-tech-key.pem
+          echo "Key downloaded and permissions set to 400 (read-only for owner)"
+          ls -la ./amomeal-tech-key.pem
+
+      - name: Upload SSH key as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: amomeal-tech-key-pem
+          path: ./amomeal-tech-key.pem
+          retention-days: 30
+        continue-on-error: true
+
+      
+      - name: Wait for instances ready with SSM
+        run: |
+          echo "⏳ Waiting for instances to be ready with SSM..."
+          
+          MAX_WAIT=600
+          INTERVAL=10
+          ELAPSED=0
+          
+          while [ $ELAPSED -lt $MAX_WAIT ]; do
+            INSTANCE_DATA=$(aws autoscaling describe-auto-scaling-groups \
+              --auto-scaling-group-names app-asg \
+              --query 'AutoScalingGroups[0].Instances[*].[InstanceId,LifecycleState]' \
+              --output text 2>/dev/null)
+            
+            if [ -z "$INSTANCE_DATA" ]; then
+              echo "⏳ No instances found yet... ($ELAPSED/$MAX_WAIT seconds)"
+              sleep $INTERVAL
+              ELAPSED=$((ELAPSED + INTERVAL))
+              continue
+            fi
+            
+            INSTANCE_IDS=$(echo "$INSTANCE_DATA" | awk '{print $1}')
+            TOTAL_COUNT=$(echo "$INSTANCE_IDS" | wc -w)
+            INSERVICE_COUNT=$(echo "$INSTANCE_DATA" | grep "InService" | wc -l)
+            
+            echo "📊 Instances: $TOTAL_COUNT found, $INSERVICE_COUNT InService (target: 2)"
+            
+            if [ "$TOTAL_COUNT" -ge 2 ] && [ "$INSERVICE_COUNT" -eq 2 ]; then
+              echo "✅ 2 instances are InService"
+              
+              SSM_READY=true
+              for ID in $INSTANCE_IDS; do
+                SSM_STATUS=$(aws ssm describe-instance-information \
+                  --filters "Key=InstanceIds,Values=$ID" \
+                  --query 'InstanceInformationList[0].PingStatus' \
+                  --output text 2>/dev/null || echo "NotRegistered")
+                
+                if [ "$SSM_STATUS" != "Online" ]; then
+                  echo "  ⏳ SSM on $ID: $SSM_STATUS"
+                  SSM_READY=false
+                else
+                  echo "  ✅ SSM on $ID: Online"
+                fi
+              done
+              
+              if [ "$SSM_READY" = true ]; then
+                echo "✅ All instances ready with SSM!"
+                break
+              fi
+            fi
+            
+            sleep $INTERVAL
+            ELAPSED=$((ELAPSED + INTERVAL))
+          done
+          
+          if [ $ELAPSED -ge $MAX_WAIT ]; then
+            echo "❌ Timeout waiting for instances"
+            exit 1
+          fi
+
+# ========== DEPLOY STAGING ==========
+  deploy_staging:
+    name: Deploy Staging
+    runs-on: ubuntu-latest
+    needs: provision_infra
+    if: github.event.inputs.action != 'destroy'
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Deploy Staging
+        run: echo "Deploy staging"
+
+# ========== E2E TEST ==========
+  e2e_test:
+    runs-on: ubuntu-latest
+    needs: deploy_staging
+    if: github.event.inputs.action != 'destroy'
+    steps:
+      - name: Run Integration Tests
+        run: echo "Run integration tests"
+      - name: Run DAST
+        run: echo "Run dynamic security test"
+
+# ========== PRODUCTION DEPLOY (CANARY ROLLING) ==========
+  deploy_prod:
+    name: Deploy Production (Canary Rolling)
+    runs-on: ubuntu-latest
+    needs: e2e_test
+    if: github.event.inputs.action != 'destroy'
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-role
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Get all instances
+        id: instances
+        run: |
+          INSTANCE_IDS=$(aws autoscaling describe-auto-scaling-groups \
+            --auto-scaling-group-names app-asg \
+            --query 'AutoScalingGroups[0].Instances[*].InstanceId' \
+            --output text)
+          echo "all_ids=$INSTANCE_IDS" >> $GITHUB_OUTPUT
+          FIRST_ID=$(echo $INSTANCE_IDS | awk '{print $1}')
+          echo "first_id=$FIRST_ID" >> $GITHUB_OUTPUT
+      
+      - name: Wait for SSM on first instance
+        run: |
+          INSTANCE_ID="${{ steps.instances.outputs.first_id }}"
+          for i in {1..30}; do
+            STATUS=$(aws ssm describe-instance-information \
+              --filters "Key=InstanceIds,Values=$INSTANCE_ID" \
+              --query 'InstanceInformationList[0].PingStatus' \
+              --output text 2>/dev/null || echo "NotRegistered")
+            if [ "$STATUS" = "Online" ]; then
+              echo "✅ Instance $INSTANCE_ID SSM ready"
+              break
+            fi
+            echo "⏳ Waiting for SSM on $INSTANCE_ID... ($i/30)"
+            sleep 10
+          done
+      - name: Deploy Canary on first instance
+        id: deploy_canary
+        run: |
+          INSTANCE_ID="${{ steps.instances.outputs.first_id }}"
+          
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids $INSTANCE_ID \
+            --document-name "AWS-RunShellScript" \
+            --parameters 'commands=[
+              "aws s3 cp s3://phuc-amomeal-tech-terraform-state/scripts/deploy-production.sh /tmp/deploy.sh --region us-east-1",
+              "chmod +x /tmp/deploy.sh",
+              "sudo /tmp/deploy.sh ${{ github.sha }} canary '"$INSTANCE_ID"' 2>&1 | tee /tmp/deploy-canary.log",
+              "echo \"EXIT_CODE=$?\" >> /tmp/deploy-canary.log"
+            ]' \
+            --comment "Deploy canary" \
+            --output text \
+            --query 'Command.CommandId')
+          
+          echo "command_id=$COMMAND_ID" >> $GITHUB_OUTPUT
+          echo "📋 Command ID: $COMMAND_ID"
+          
+          # Đợi command hoàn thành kèm timeout
+          MAX_WAIT=300
+          ELAPSED=0
+          INTERVAL=10
+          
+          while [ $ELAPSED -lt $MAX_WAIT ]; do
+            STATUS=$(aws ssm list-commands --command-id $COMMAND_ID --query 'Commands[0].Status' --output text --region us-east-1)
+            
+            if [ "$STATUS" = "Success" ]; then
+              echo "✅ Canary deployment succeeded"
+              # Hiển thị output
+              aws ssm list-command-invocations \
+                --command-id $COMMAND_ID \
+                --details \
+                --region us-east-1 \
+                --query 'CommandInvocations[0].CommandPlugins[0].Output' \
+                --output text
+              break
+            elif [ "$STATUS" = "Failed" ] || [ "$STATUS" = "TimedOut" ] || [ "$STATUS" = "Cancelled" ]; then
+              echo "❌ Canary deployment failed with status: $STATUS"
+              echo "📋 Fetching error details..."
+              
+              # Lấy standard output và error
+              aws ssm list-command-invocations \
+                --command-id $COMMAND_ID \
+                --details \
+                --region us-east-1 \
+                --query 'CommandInvocations[0].CommandPlugins[0].[Output,StandardErrorContent]' \
+                --output text
+              
+              # Thử đọc log file từ instance qua SSM
+              echo "📋 Reading log file from instance..."
+              LOG_CMD_ID=$(aws ssm send-command \
+                --instance-ids $INSTANCE_ID \
+                --document-name "AWS-RunShellScript" \
+                --parameters 'commands=["cat /tmp/deploy-canary.log 2>/dev/null || echo \"Log file not found\""]' \
+                --region us-east-1 \
+                --query 'Command.CommandId' \
+                --output text)
+              
+              sleep 5
+              
+              aws ssm list-command-invocations \
+                --command-id $LOG_CMD_ID \
+                --details \
+                --region us-east-1 \
+                --query 'CommandInvocations[0].CommandPlugins[0].Output' \
+                --output text 2>/dev/null || true
+              
+              exit 1
+            fi
+            
+            echo "⏳ Waiting for command to complete... Status: $STATUS (${ELAPSED}s/${MAX_WAIT}s)"
+            sleep $INTERVAL
+            ELAPSED=$((ELAPSED + INTERVAL))
+          done
+          
+          if [ $ELAPSED -ge $MAX_WAIT ]; then
+            echo "❌ Timeout waiting for command to complete"
+            exit 1
+          fi
+
+      - name: Wait for canary to stabilize
+        run: |
+          echo "⏳ Waiting 30 seconds for canary to stabilize..."
+          sleep 30
+      
+      - name: Promote to production on first instance
+        run: |
+          INSTANCE_ID="${{ steps.instances.outputs.first_id }}"
+          
+          aws ssm send-command \
+            --instance-ids $INSTANCE_ID \
+            --document-name "AWS-RunShellScript" \
+            --parameters "commands=
+              aws s3 cp s3://phuc-amomeal-tech-terraform-state/scripts/deploy-production.sh /tmp/deploy.sh --region ${{ env.AWS_REGION }}
+              chmod +x /tmp/deploy.sh
+              sudo /tmp/deploy.sh ${{ github.sha }} full $INSTANCE_ID
+            " \
+            --comment "Promote to production" \
+            --output text
+      
+      - name: Deploy to remaining instances
+        run: |
+          ALL_IDS="${{ steps.instances.outputs.all_ids }}"
+          FIRST_ID="${{ steps.instances.outputs.first_id }}"
+          
+          for INSTANCE_ID in $ALL_IDS; do
+            if [ "$INSTANCE_ID" = "$FIRST_ID" ]; then
+              continue
+            fi
+            
+            echo "🚀 Deploying to instance: $INSTANCE_ID"
+            
+            # Wait for SSM ready
+            for i in {1..30}; do
+              STATUS=$(aws ssm describe-instance-information \
+                --filters "Key=InstanceIds,Values=$INSTANCE_ID" \
+                --query 'InstanceInformationList[0].PingStatus' \
+                --output text 2>/dev/null || echo "NotRegistered")
+              if [ "$STATUS" = "Online" ]; then
+                break
+              fi
+              sleep 10
+            done
+            
+            # Deploy canary
+            aws ssm send-command \
+              --instance-ids $INSTANCE_ID \
+              --document-name "AWS-RunShellScript" \
+              --parameters "commands=
+                aws s3 cp s3://phuc-amomeal-tech-terraform-state/scripts/deploy-production.sh /tmp/deploy.sh --region ${{ env.AWS_REGION }}
+                chmod +x /tmp/deploy.sh
+                sudo /tmp/deploy.sh ${{ github.sha }} canary $INSTANCE_ID
+              " \
+              --comment "Deploy canary" \
+              --output text
+            
+            sleep 30
+            
+            # Promote to production
+            aws ssm send-command \
+              --instance-ids $INSTANCE_ID \
+              --document-name "AWS-RunShellScript" \
+              --parameters "commands=
+                aws s3 cp s3://phuc-amomeal-tech-terraform-state/scripts/deploy-production.sh /tmp/deploy.sh --region ${{ env.AWS_REGION }}
+                chmod +x /tmp/deploy.sh
+                sudo /tmp/deploy.sh ${{ github.sha }} full $INSTANCE_ID
+              " \
+              --comment "Promote to production" \
+              --output text
+          done
+          
+          echo "✅ All instances deployed"
+
+# ========== POST DEPLOY ==========
+  post_deploy:
+    runs-on: ubuntu-latest
+    needs: deploy_prod
+    if: always() && github.event.inputs.action != 'destroy'
+    steps:
+      - name: Smoke Test
+        run: echo "Run smoke test"
+      - name: Monitoring
+        run: echo "Check monitoring"
+      - name: Notify Discord
+        run: echo "Send notification (Discord)"
+      - name: Rollback (if needed)
+        run: echo "Rollback logic here"
+
+# ========== DESTROY ==========
+  destroy:
+    runs-on: ubuntu-latest
+    if: github.event.inputs.action == 'destroy'
+    permissions: 
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-role
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Force delete secret
+        run: |
+          aws secretsmanager delete-secret --secret-id amomeal-tech-backend-secret --force-delete-without-recovery --region ${{ env.AWS_REGION }} 2>/dev/null || true
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+      
+      - name: Terraform Init
+        working-directory: ./terraform
+        run: terraform init
+      
+      - name: Remove protected resources from state
+        working-directory: ./terraform
+        run: |
+          terraform state rm aws_s3_bucket.terraform_state 2>/dev/null || true
+          terraform state rm aws_iam_role.github_actions_role 2>/dev/null || true
+          terraform state rm aws_iam_openid_connect_provider.github 2>/dev/null || true
+          terraform state rm aws_secretsmanager_secret.backend_secret 2>/dev/null || true
+          terraform state rm aws_iam_role_policy_attachment.github_admin 2>/dev/null || true
+      
+      - name: Force unlock
+        working-directory: ./terraform
+        run: |
+          aws s3 rm s3://phuc-amomeal-tech-terraform-state/amomeal-tech/terraform.tfstate.tflock --region ${{ env.AWS_REGION }} 2>/dev/null || true
+      
+      - name: Terraform Destroy
+        working-directory: ./terraform
+        run: |
+          terraform destroy -auto-approve \
+            -var="secret_key=${{ secrets.SECRET_KEY }}" \
+            -var="authenticate_token_expires_in=${{ secrets.AUTHENTICATE_TOKEN_EXPIRES_IN }}" \
+            -var="debug=${{ secrets.DEBUG }}" \
+            -var="database_url=${{ secrets.DATABASE_URL }}" \
+            -var="postgres_db=${{ secrets.POSTGRES_DB }}" \
+            -var="postgres_host=${{ secrets.POSTGRES_HOST }}" \
+            -var="postgres_password=${{ secrets.POSTGRES_PASSWORD }}" \
+            -var="postgres_port=${{ secrets.POSTGRES_PORT }}" \
+            -var="postgres_user=${{ secrets.POSTGRES_USER }}" \
+            -var="email_backend=${{ secrets.EMAIL_BACKEND }}" \
+            -var="email_host=${{ secrets.EMAIL_HOST }}" \
+            -var="email_host_user=${{ secrets.EMAIL_HOST_USER }}" \
+            -var="email_host_password=${{ secrets.EMAIL_HOST_PASSWORD }}" \
+            -var="email_port=${{ secrets.EMAIL_PORT }}" \
+            -var="email_use_tls=${{ secrets.EMAIL_USE_TLS }}" \
+            -var="email_use_ssl=${{ secrets.EMAIL_USE_SSL }}" \
+            -var="email_timeout=${{ secrets.EMAIL_TIMEOUT }}" \
+            -var="payos_api_key=${{ secrets.PAYOS_API_KEY }}" \
+            -var="payos_api_url=${{ secrets.PAYOS_API_URL }}" \
+            -var="payos_checksum_key=${{ secrets.PAYOS_CHECKSUM_KEY }}" \
+            -var="payos_client_id=${{ secrets.PAYOS_CLIENT_ID }}" \
+            -var="payos_return_url=${{ secrets.PAYOS_RETURN_URL }}" \
+            -var="payos_cancel_url=${{ secrets.PAYOS_CANCEL_URL }}" \
+            -var="use_s3=${{ secrets.USE_S3 }}" \
+            -var="aws_access_key_id=${{ secrets.AWS_ACCESS_KEY_ID }}" \
+            -var="aws_secret_access_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
+            -var="aws_storage_bucket_name=${{ secrets.AWS_STORAGE_BUCKET_NAME }}" \
+            -var="aws_s3_region_name=${{ secrets.AWS_S3_REGION_NAME }}" \
+            -var="s3_access_key_id=${{ secrets.S3_ACCESS_KEY_ID }}" \
+            -var="s3_secret_access_key=${{ secrets.S3_SECRET_ACCESS_KEY }}" \
+            -var="s3_bucket_name=${{ secrets.S3_BUCKET_NAME }}" \
+            -var="s3_region=${{ secrets.S3_REGION }}" \
+            -var="s3_expires_in=${{ secrets.S3_EXPIRES_IN }}" \
+            -var="s3_public_url=${{ secrets.S3_PUBLIC_URL }}" \
+            -var="auth_jwt_algorithm=${{ secrets.AUTH_JWT_ALGORITHM }}" \
+            -var="auth_jwt_secret=${{ secrets.AUTH_JWT_SECRET }}" \
+            -var="auth_refresh_token_expires_in=${{ secrets.AUTH_REFRESH_TOKEN_EXPIRES_IN }}" \
+            -var="auth_refresh_token_pepper=${{ secrets.AUTH_REFRESH_TOKEN_PEPPER }}" \
+            -var="gemini_api_key=${{ secrets.GEMINI_API_KEY }}" \
+            -var="otp_bank_expire_minutes=${{ secrets.OTP_BANK_EXPIRE_MINUTES }}" \
+            -var="otp_reset_password_expire_minutes=${{ secrets.OTP_RESET_PASSWORD_EXPIRE_MINUTES }}" \
+            -var="otp_signup_expire_minutes=${{ secrets.OTP_SIGNUP_EXPIRE_MINUTES }}" \
+            -var="otp_withdraw_expire_minutes=${{ secrets.OTP_WITHDRAW_EXPIRE_MINUTES }}" \
+            -var="payment_only_deploy=${{ secrets.PAYMENT_ONLY_DEPLOY }}" \
+            -var="payos_payout_api_key=${{ secrets.PAYOS_PAYOUT_API_KEY }}" \
+            -var="payos_payout_checksum_key=${{ secrets.PAYOS_PAYOUT_CHECKSUM_KEY }}" \
+            -var="payos_payout_client_id=${{ secrets.PAYOS_PAYOUT_CLIENT_ID }}" \
+            -var="wallet_chain_secret=${{ secrets.WALLET_CHAIN_SECRET }}"
+          echo "✅ Destroy completed (protected resources kept)"
